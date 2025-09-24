@@ -3,6 +3,8 @@ import os
 import sys
 from typing import Iterable, List, Set
 
+from .exif_utils import extract_photo_date_string
+
 
 SUPPORTED_EXTENSIONS: Set[str] = {
 	".jpg",
@@ -51,6 +53,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
 		help="Comma-separated list of extensions to include (e.g., .jpg,.jpeg,.png)",
 		default=",".join(sorted(SUPPORTED_EXTENSIONS)),
 	)
+	parser.add_argument("--exif-only", action="store_true", help="Only process files with EXIF shooting date; skip others")
+	parser.add_argument("--fallback-mtime", action="store_true", default=True, help="Use file modification time if EXIF shooting date missing")
+	parser.add_argument("--no-fallback-mtime", dest="fallback_mtime", action="store_false", help="Do not fallback to mtime when EXIF missing")
 	return parser
 
 
@@ -70,7 +75,9 @@ def main(argv: List[str] | None = None) -> int:
 	if args.dry_run:
 		print(f"DRY RUN: {len(files)} file(s) would be processed")
 		for f in files:
-			print(f)
+			date_str = extract_photo_date_string(f, fallback_mtime=args.fallback_mtime, exif_only=args.exif_only)
+			status = date_str if date_str else ("SKIP: no date" if args.exif_only else "no date")
+			print(f"{f} -> {status}")
 		return 0
 
 	# Placeholder for future processing steps
