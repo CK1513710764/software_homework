@@ -152,10 +152,18 @@ def main(argv: List[str] | None = None) -> int:
 						print(f"Exists, skip write: {out_path}")
 					ok += 1
 					continue
-				# Choose format from original extension
+				# Choose format from original extension and attempt to keep EXIF for JPEG
 				_, ext = os.path.splitext(f)
 				fmt = "JPEG" if ext.lower() in {".jpg", ".jpeg"} else None
-				out_im.save(out_path, format=fmt)
+				if fmt == "JPEG":
+					try:
+						import piexif
+						exif_bytes = piexif.dump(piexif.load(f))
+						out_im.save(out_path, format=fmt, exif=exif_bytes, quality=95)
+					except Exception:
+						out_im.save(out_path, format=fmt, quality=95)
+				else:
+					out_im.save(out_path, format=fmt)
 				ok += 1
 		except Exception as e:
 			errors += 1
