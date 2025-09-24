@@ -4,6 +4,7 @@ import sys
 from typing import Iterable, List, Set
 
 from .exif_utils import extract_photo_date_string
+from .render import draw_text_watermark
 
 
 SUPPORTED_EXTENSIONS: Set[str] = {
@@ -42,7 +43,7 @@ def enumerate_candidate_files(root_path: str, recursive: bool, include_ext: Iter
 def build_arg_parser() -> argparse.ArgumentParser:
 	parser = argparse.ArgumentParser(
 		prog="photodate-wm",
-		description="Batch add shooting-date watermark to photos (dry-run enumerates files).",
+		description="Batch add shooting-date watermark to photos.",
 	)
 	parser.add_argument("--path", required=True, help="File or directory path to process")
 	parser.add_argument("--dry-run", action="store_true", help="List files that would be processed without writing outputs")
@@ -56,7 +57,44 @@ def build_arg_parser() -> argparse.ArgumentParser:
 	parser.add_argument("--exif-only", action="store_true", help="Only process files with EXIF shooting date; skip others")
 	parser.add_argument("--fallback-mtime", action="store_true", default=True, help="Use file modification time if EXIF shooting date missing")
 	parser.add_argument("--no-fallback-mtime", dest="fallback_mtime", action="store_false", help="Do not fallback to mtime when EXIF missing")
+	# Rendering options
+	parser.add_argument("--font-size", type=int, default=32, help="Font size in pixels")
+	parser.add_argument("--color", type=str, default="#FFFFFF", help="Text color (#RRGGBB, #RRGGBBAA, or named)")
+	parser.add_argument("--opacity", type=float, default=1.0, help="Opacity (0-1). Ignored if color includes alpha")
+	parser.add_argument("--position", type=str, default="br", help="Anchor: tl,tc,tr,cl,cc,cr,bl,bc,br")
+	parser.add_argument("--margin-x", type=int, default=24, help="Horizontal margin in pixels from anchor")
+	parser.add_argument("--margin-y", type=int, default=24, help="Vertical margin in pixels from anchor")
+	parser.add_argument("--font-path", type=str, default=None, help="Path to .ttf/.otf font file")
+	# Output options
+	parser.add_argument("--output-dir-name", type=str, default=None, help="Override output subdirectory name; default <dirname>_watermark")
+	parser.add_argument("--suffix", type=str, default=None, help="Optional filename suffix (without dot)")
+	parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output files")
 	return parser
+
+
+def _derive_output_root(input_path: str, override_name: str | None) -> str:
+	if os.path.isfile(input_path):
+		parent = os.path.dirname(os.path.abspath(input_path))
+		base_dir = os.path.basename(parent)
+	else:
+		parent = os.path.abspath(input_path)
+		base_dir = os.path.basename(parent)
+	name = override_name if override_name else f"{base_dir}_watermark"
+	return os.path.join(parent, name)
+
+
+def _map_output_path(file_path: str, root_input: str, root_output: str, suffix: str | None) -> str:
+	if os.path.isfile(root_input):
+		# single file mode: put into output root directly
+		rel = os.path.basename(file_path)
+	else:
+		rel = os.path.relpath(file_path, start=root_input)
+	out_path = os.path.join(root_output, rel)
+	if suffix:
+		stem, ext = os.path.splitext(out_path)
+		out_path = f"{stem}_{suffix}{ext}"
+	os.makedirs(os.path.dirname(out_path), exist_ok=True)
+	return out_path
 
 
 def main(argv: List[str] | None = None) -> int:
@@ -80,11 +118,51 @@ def main(argv: List[str] | None = None) -> int:
 			print(f"{f} -> {status}")
 		return 0
 
-	# Placeholder for future processing steps
 	if args.verbose:
-		print(f"Found {len(files)} file(s) to process")
+		print(f"Processing {len(files)} file(s)...")
 
-	# For v0 minimal CLI, we do nothing unless dry-run; return 0 to indicate success
+	root_output = _derive_output_root(args.path, args.output_dir_name)
+	ok = 0
+	skipped = 0
+	errors = 0
+	for f in files:
+		try:
+			date_str = extract_photo_date_string(f, fallback_mtime=args.fallback_mtime, exif_only=args.exif_only)
+			if not date_str:
+				skipped += 1
+				if args.verbose:
+					print(f"Skip {f}: no date")
+				continue
+			from PIL import Image
+			with Image.open(f) as im:
+				out_im = draw_text_watermark(
+					im,
+					date_str,
+					font_size=args.font_size,
+					color=args.color,
+					opacity=args.opacity,
+					position=args.position,
+					margin_x=args.margin_x,
+					margin_y=args.margin_y,
+					font_path=args.font_path,
+				)
+				out_path = _map_output_path(f, os.path.abspath(args.path), root_output, args.suffix)
+				if os.path.exists(out_path) and not args.overwrite:
+					if args.verbose:
+						print(f"Exists, skip write: {out_path}")
+					ok += 1
+					continue
+				# Choose format from original extension
+				_, ext = os.path.splitext(f)
+				fmt = "JPEG" if ext.lower() in {".jpg", ".jpeg"} else None
+				out_im.save(out_path, format=fmt)
+				ok += 1
+		except Exception as e:
+			errors += 1
+			print(f"Error processing {f}: {e}", file=sys.stderr)
+
+	if errors > 0 or skipped > 0:
+		return 1
 	return 0
 
 
