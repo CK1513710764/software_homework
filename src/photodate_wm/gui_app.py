@@ -95,6 +95,8 @@ class App:
 		# Options
 		opts = ttk.LabelFrame(frm, text="参数")
 		opts.pack(fill=tk.X, padx=6, pady=6)
+		# grid row counter
+		row = 0
 		# watermark type selection
 		ttk.Label(opts, text="水印类型").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
 		wm_cb = ttk.Combobox(opts, textvariable=self.wm_type_var, values=["date","text","image"], width=10, state="readonly")
@@ -119,7 +121,6 @@ class App:
 		img_scale.grid(row=row, column=1, sticky=tk.W+tk.E, padx=4, pady=4)
 		row += 1
 
-		row = 0
 		for label, var, width in [
 			("输出文件夹", self.output_dir_var, 60),
 			("文件名前缀", self.prefix_var, 20),
