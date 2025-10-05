@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -73,6 +74,7 @@ class App:
 
 		self._build_ui()
 		self._setup_dnd()
+		self._cancel = False
 
 	def _build_ui(self):
 		frm = ttk.Frame(self.root)
@@ -237,8 +239,14 @@ class App:
 		chk2.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
 		row += 1
 
-		btn_run = ttk.Button(frm, text="开始处理并导出", command=self.run_export)
-		btn_run.pack(pady=8)
+		controls = ttk.Frame(frm)
+		controls.pack(fill=tk.X, padx=6, pady=6)
+		self.btn_run = ttk.Button(controls, text="开始处理并导出", command=self.run_export)
+		self.btn_run.pack(side=tk.LEFT)
+		self.btn_cancel = ttk.Button(controls, text="取消", command=self.cancel_export, state=tk.DISABLED)
+		self.btn_cancel.pack(side=tk.LEFT, padx=8)
+		self.progress = ttk.Progressbar(controls, mode="determinate")
+		self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
 
 	def _setup_dnd(self):
 		# optional drag & drop listbox
@@ -319,6 +327,27 @@ class App:
 			return im
 		return im.resize((new_w, new_h), Image.LANCZOS)
 
+	def _set_running_state(self, running: bool, total: int = 0):
+		def _apply():
+			self.btn_run.configure(state=(tk.DISABLED if running else tk.NORMAL))
+			self.btn_cancel.configure(state=(tk.NORMAL if running else tk.DISABLED))
+			if running:
+				self.progress.configure(maximum=max(1, total), value=0)
+			else:
+				self.progress.configure(value=0)
+		self.root.after(0, _apply)
+
+	def _inc_progress(self):
+		def _apply():
+			try:
+				self.progress.step(1)
+			except Exception:
+				pass
+		self.root.after(0, _apply)
+
+	def cancel_export(self):
+		self._cancel = True
+
 	def run_export(self):
 		out_dir = self.output_dir_var.get().strip()
 		if not out_dir:
@@ -330,78 +359,97 @@ class App:
 				messagebox.showerror("错误", "输出文件夹不能与源文件夹相同")
 				return
 
-		fmt = self.format_var.get()
-		prefix = self.prefix_var.get()
-		suffix = self.suffix_var.get()
-		jpeg_quality = int(self.jpeg_quality_var.get())
+		# start background worker
+		items_to_process = list(self.items)
+		self._cancel = False
+		self._set_running_state(True, total=len(items_to_process))
 
-		os.makedirs(out_dir, exist_ok=True)
-		success, skipped, failed = 0, 0, 0
-		for it in self.items:
-			try:
-				with Image.open(it.path) as im:
-					im2 = self._resize_image(im)
-					wm_type = self.wm_type_var.get()
-					if wm_type == "date":
-						date_str = extract_photo_date_string(it.path, fallback_mtime=self.fallback_mtime_var.get(), exif_only=self.exif_only_var.get())
-						if not date_str:
-							skipped += 1
-							continue
-						text_to_draw = date_str
-					elif wm_type == "text":
-						text_to_draw = (self.custom_text_var.get() or "").strip()
-						if not text_to_draw:
-							skipped += 1
-							continue
-					else:  # image watermark
-						img_path = (self.image_wm_path_var.get() or "").strip()
-						if not img_path or not os.path.isfile(img_path):
-							skipped += 1
-							continue
+		def _worker():
+			fmt = self.format_var.get()
+			prefix = self.prefix_var.get()
+			suffix = self.suffix_var.get()
+			jpeg_quality = int(self.jpeg_quality_var.get())
 
-					if wm_type in ("date","text"):
-						out_im = draw_text_watermark(
-							im2,
-							text_to_draw,
-							font_size=int(self.font_size_var.get()),
-							color=self.color_var.get(),
-							opacity=float(self.opacity_var.get()),
-							position=self.position_var.get(),
-							margin_x=int(self.margin_x_var.get()),
-							margin_y=int(self.margin_y_var.get()),
-							font_path=(self.font_path_var.get().strip() or None),
-							stroke_width=int(self.stroke_width_var.get()),
-							stroke_color=self.stroke_color_var.get(),
-							shadow_offset=(int(self.shadow_dx_var.get()), int(self.shadow_dy_var.get())),
-							shadow_color=self.shadow_color_var.get(),
-							shadow_opacity=float(self.shadow_opacity_var.get()),
-						)
-					else:
-						with Image.open(img_path) as wm:
-							out_im = draw_image_watermark(
+			os.makedirs(out_dir, exist_ok=True)
+			success, skipped, failed, cancelled = 0, 0, 0, 0
+			for it in items_to_process:
+				if self._cancel:
+					cancelled += 1
+					break
+				try:
+					with Image.open(it.path) as im:
+						im2 = self._resize_image(im)
+						wm_type = self.wm_type_var.get()
+						if wm_type == "date":
+							date_str = extract_photo_date_string(it.path, fallback_mtime=self.fallback_mtime_var.get(), exif_only=self.exif_only_var.get())
+							if not date_str:
+								skipped += 1
+								self._inc_progress()
+								continue
+							text_to_draw = date_str
+						elif wm_type == "text":
+							text_to_draw = (self.custom_text_var.get() or "").strip()
+							if not text_to_draw:
+								skipped += 1
+								self._inc_progress()
+								continue
+						else:  # image watermark
+							img_path = (self.image_wm_path_var.get() or "").strip()
+							if not img_path or not os.path.isfile(img_path):
+								skipped += 1
+								self._inc_progress()
+								continue
+
+						if wm_type in ("date","text"):
+							out_im = draw_text_watermark(
 								im2,
-								wm,
-								scale_percent=int(self.image_wm_scale_var.get()),
+								text_to_draw,
+								font_size=int(self.font_size_var.get()),
+								color=self.color_var.get(),
 								opacity=float(self.opacity_var.get()),
 								position=self.position_var.get(),
 								margin_x=int(self.margin_x_var.get()),
 								margin_y=int(self.margin_y_var.get()),
+								font_path=(self.font_path_var.get().strip() or None),
+								stroke_width=int(self.stroke_width_var.get()),
+								stroke_color=self.stroke_color_var.get(),
+								shadow_offset=(int(self.shadow_dx_var.get()), int(self.shadow_dy_var.get())),
+								shadow_color=self.shadow_color_var.get(),
+								shadow_opacity=float(self.shadow_opacity_var.get()),
 							)
-					stem = os.path.splitext(os.path.basename(it.path))[0]
-					out_name = f"{prefix}{stem}{suffix}"
-					ext = ".jpg" if fmt == "JPEG" else ".png"
-					out_path = os.path.join(out_dir, out_name + ext)
-					if fmt == "JPEG":
-						out_im = out_im.convert("RGB")
-						out_im.save(out_path, format="JPEG", quality=jpeg_quality)
-					else:
-						out_im.save(out_path, format="PNG")
-					success += 1
-			except Exception as e:
-				failed += 1
-				print(f"Error: {it.path}: {e}", file=sys.stderr)
+						else:
+							with Image.open(img_path) as wm:
+								out_im = draw_image_watermark(
+									im2,
+									wm,
+									scale_percent=int(self.image_wm_scale_var.get()),
+									opacity=float(self.opacity_var.get()),
+									position=self.position_var.get(),
+									margin_x=int(self.margin_x_var.get()),
+									margin_y=int(self.margin_y_var.get()),
+								)
+						stem = os.path.splitext(os.path.basename(it.path))[0]
+						out_name = f"{prefix}{stem}{suffix}"
+						ext = ".jpg" if fmt == "JPEG" else ".png"
+						out_path = os.path.join(out_dir, out_name + ext)
+						if fmt == "JPEG":
+							out_im = out_im.convert("RGB")
+							out_im.save(out_path, format="JPEG", quality=jpeg_quality)
+						else:
+							out_im.save(out_path, format="PNG")
+						success += 1
+				except Exception as e:
+					failed += 1
+					print(f"Error: {it.path}: {e}", file=sys.stderr)
+				finally:
+					self._inc_progress()
 
-		messagebox.showinfo("完成", f"成功: {success}\n跳过: {skipped}\n失败: {failed}")
+			def _done():
+				self._set_running_state(False)
+				messagebox.showinfo("完成", f"成功: {success}\n跳过: {skipped}\n失败: {failed}\n取消: {cancelled}")
+			self.root.after(0, _done)
+
+		threading.Thread(target=_worker, daemon=True).start()
 
 
 def run():
