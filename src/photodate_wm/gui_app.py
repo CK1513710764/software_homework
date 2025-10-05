@@ -92,9 +92,32 @@ class App:
 		self.listbox = tk.Listbox(frm, height=10)
 		self.listbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-		# Options
-		opts = ttk.LabelFrame(frm, text="参数")
-		opts.pack(fill=tk.X, padx=6, pady=6)
+		# Options (scrollable)
+		opts_container = ttk.LabelFrame(frm, text="参数")
+		opts_container.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+		canvas = tk.Canvas(opts_container, highlightthickness=0)
+		sb_y = ttk.Scrollbar(opts_container, orient=tk.VERTICAL, command=canvas.yview)
+		canvas.configure(yscrollcommand=sb_y.set)
+		canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+		sb_y.pack(side=tk.RIGHT, fill=tk.Y)
+		opts = ttk.Frame(canvas)
+		win_id = canvas.create_window((0, 0), window=opts, anchor="nw")
+
+		def _on_frame_configure(event):
+			canvas.configure(scrollregion=canvas.bbox("all"))
+		opts.bind("<Configure>", _on_frame_configure)
+
+		def _on_canvas_configure(event):
+			# Make inner frame width track canvas width
+			canvas.itemconfigure(win_id, width=event.width)
+		canvas.bind("<Configure>", _on_canvas_configure)
+
+		# Mouse wheel scrolling
+		def _on_mousewheel(event):
+			# Windows delta is negative for scroll down
+			canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+		canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
 		# grid row counter
 		row = 0
 		# watermark type selection
