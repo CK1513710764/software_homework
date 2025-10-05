@@ -224,7 +224,7 @@ class App:
 
 		# watermark style
 		ttk.Label(opts, text="位置").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
-		pos_cb = ttk.Combobox(opts, textvariable=self.position_var, values=["tl","tc","tr","cl","cc","cr","bl","bc","br"], width=10, state="readonly")
+		pos_cb = ttk.Combobox(opts, textvariable=self.position_var, values=["tl","tc","tr","cl","cc","cr","bl","bc","br","manual"], width=10, state="readonly")
 		pos_cb.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
 		row += 1
 
