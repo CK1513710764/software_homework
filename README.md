@@ -76,6 +76,27 @@ GUI 功能点：
 - 滚动参数面板：全屏时不会溢出，滚动查看更多选项。
 - 进度与取消：导出时显示进度条，可随时取消。
 
+### 启动指南（一步到位）
+1) 第一次运行（安装依赖）
+```powershell
+cd "C:\Users\Lenovo\Desktop\作业\software_homework"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+2) 每次启动（GUI 推荐）
+```powershell
+cd "C:\Users\Lenovo\Desktop\作业\software_homework"
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONPATH="src;$env:PYTHONPATH"
+python -m photodate_wm --gui
+```
+3) 命令行（可选）
+```powershell
+python -m photodate_wm --path "D:\Photos" --dry-run
+python -m photodate_wm --path "D:\Photos" --recursive
+```
+
 ### 新增：模板/配置管理
 - 保存模板：点击“保存模板”把当前所有设置保存为 JSON（路径：`%USERPROFILE%\.photodate_wm\<name>.json`）。
 - 加载模板：点击“加载模板”选择 JSON 应用。
@@ -132,6 +153,23 @@ python -m photodate_wm --path "D:\Photos\IMG_0001.jpg"
 > 说明：
 > - 目前 CLI 主流程专注于“日期水印”；文本/图片水印能力主要通过 GUI 提供。
 > - HEIC/HEIF 支持依赖系统/库环境，建议优先使用 JPEG/PNG/BMP/TIFF。
+
+### 模板文件位置
+- 模板与最近一次设置保存在：`%USERPROFILE%\.photodate_wm\`
+  - 自定义模板：`<name>.json`
+  - 自动保存：`last.json`
+
+### 常见问题（FAQ）
+- 启动时报 “No module named photodate_wm”
+  - 先激活虚拟环境并设置 `PYTHONPATH=src`，再运行。
+- 选择了图片水印但导出看不到
+  - 水印类型需选择 `image`，优先使用带透明通道的 PNG；将“图片水印比例(%)”设置为 10–30 先确认可见，再调整；透明度先用 1.0 验证。
+- 居中时边距不生效
+  - 居中锚点对应轴上的边距不会生效；需要边距请用贴边锚点（如 br/tr/bl/tl 等）。
+- 全屏界面下选项看不全
+  - 参数面板支持滚动，鼠标滚轮即可查看。
+- 输出到哪里
+  - 目录模式：`<输入目录>\\<输入目录名>_watermark\\...`；单文件：同级 `<上级目录名>_watermark\\文件名`。GUI 可自选输出目录。
 
 ### 输出规则
 - 输入为目录：输出到 `<输入目录>\<输入目录名>_watermark\...`，保留相对层级。
