@@ -43,6 +43,25 @@ python -m photodate_wm --path "D:\Photos" --dry-run --recursive
 python -m photodate_wm --path "D:\Photos" --recursive
 ```
 
+### 启动图形界面（GUI）
+```powershell
+python -m photodate_wm --gui
+```
+
+GUI 功能点：
+- 导入图片：
+  - “添加图片”支持多选；“添加文件夹”导入整个目录（含子文件夹）。
+  - 支持拖拽到列表（已安装 tkinterdnd2 时可用）。
+- 列表展示：文件名与缩略图。
+- 输出设置：选择输出文件夹（默认禁止与源文件夹相同，避免覆盖原图）。
+- 命名规则：可设置前缀、后缀（如 `wm_` 或 `_watermarked`）。
+- 输出格式：可选 JPEG 或 PNG（PNG 支持透明通道）。
+- 高级选项：
+  - JPEG 质量：0-100（越高越清晰、体积越大）。
+  - 调整尺寸：按宽度、按高度或按百分比缩放。
+- 水印样式：位置（九宫格锚点）、字号、颜色/透明度、边距、字体路径。
+- EXIF 策略：仅含 EXIF 日期时才处理、或无 EXIF 回退到文件修改时间。
+
 ### 常用参数
 - `--path <string>`：文件或目录路径（必填）。
 - `--recursive`：目录递归处理。
@@ -79,6 +98,10 @@ python -m photodate_wm --path "D:\Photos" --font-path "C:\\Windows\\Fonts\\msyh.
 ```powershell
 python -m photodate_wm --path "D:\Photos\IMG_0001.jpg"
 ```
+
+### 支持格式
+- 输入：JPEG, PNG（含透明通道）, BMP, TIFF。
+- 输出：JPEG 或 PNG（GUI 可选；CLI 默认跟随原扩展，或通过 `--suffix` 等进行区分）。
 
 ### 输出规则
 - 输入为目录：输出到 `<输入目录>\<输入目录名>_watermark\...`，保留相对层级。
