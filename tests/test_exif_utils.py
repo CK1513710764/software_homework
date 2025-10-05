@@ -39,3 +39,4 @@ def test_returns_none_when_exif_only_and_no_exif(tmp_path):
 
 
 
+
