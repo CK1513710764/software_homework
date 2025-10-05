@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import threading
+import json
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -12,7 +14,7 @@ try:
 	# optional drag & drop support
 	from tkinterdnd2 import DND_FILES, TkinterDnD
 	import tkinter as tk
-	from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 	except_import = None
 except Exception as e:
 	except_import = e
@@ -75,6 +77,21 @@ class App:
 		self._build_ui()
 		self._setup_dnd()
 		self._cancel = False
+		# load last settings on start
+		try:
+			self._load_last_settings()
+		except Exception:
+			pass
+		self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+		# load last settings if available
+		try:
+			cfg = self._load_config()
+			last = cfg.get("last_settings")
+			if isinstance(last, dict):
+				self._apply_settings(last)
+		except Exception:
+			pass
+		self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
 	def _build_ui(self):
 		frm = ttk.Frame(self.root)
@@ -89,6 +106,20 @@ class App:
 		btn_add_files.pack(side=tk.LEFT, padx=4, pady=4)
 		btn_add_dir.pack(side=tk.LEFT, padx=4, pady=4)
 		btn_choose_out.pack(side=tk.LEFT, padx=4, pady=4)
+		# template management
+		btn_save_tpl = ttk.Button(toolbar, text="保存模板", command=self.save_template)
+		btn_load_tpl = ttk.Button(toolbar, text="加载模板", command=self.load_template)
+		btn_del_tpl = ttk.Button(toolbar, text="删除模板", command=self.delete_template)
+		btn_save_tpl.pack(side=tk.LEFT, padx=4, pady=4)
+		btn_load_tpl.pack(side=tk.LEFT, padx=4, pady=4)
+		btn_del_tpl.pack(side=tk.LEFT, padx=4, pady=4)
+		# template buttons
+		btn_save_tpl = ttk.Button(toolbar, text="保存模板", command=self.save_template)
+		btn_load_tpl = ttk.Button(toolbar, text="加载模板", command=self.load_template)
+		btn_mng_tpl = ttk.Button(toolbar, text="管理模板", command=self.manage_templates)
+		btn_save_tpl.pack(side=tk.RIGHT, padx=4, pady=4)
+		btn_load_tpl.pack(side=tk.RIGHT, padx=4, pady=4)
+		btn_mng_tpl.pack(side=tk.RIGHT, padx=4, pady=4)
 
 		# Preview canvas
 		preview_frame = ttk.LabelFrame(frm, text="预览")
@@ -465,6 +496,300 @@ class App:
 
 	def _end_drag(self, _event):
 		self._dragging = False
+
+	# ============ Templates & Settings ============
+	def _config_dir(self) -> str:
+		base = os.path.join(os.path.expanduser("~"), ".photodate_wm")
+		os.makedirs(base, exist_ok=True)
+		return base
+
+	def _template_path(self, name: str) -> str:
+		name = name.strip() or "default"
+		return os.path.join(self._config_dir(), f"{name}.json")
+
+	def _list_templates(self) -> list[str]:
+		try:
+			files = [f for f in os.listdir(self._config_dir()) if f.endswith(".json")]
+			return sorted([os.path.splitext(f)[0] for f in files if f != "last.json"])
+		except Exception:
+			return []
+
+	def _collect_settings(self) -> dict:
+		return {
+			"wm_type": self.wm_type_var.get(),
+			"custom_text": self.custom_text_var.get(),
+			"image_wm_path": self.image_wm_path_var.get(),
+			"image_wm_scale": int(self.image_wm_scale_var.get()),
+			"output_dir": self.output_dir_var.get(),
+			"prefix": self.prefix_var.get(),
+			"suffix": self.suffix_var.get(),
+			"format": self.format_var.get(),
+			"jpeg_quality": int(self.jpeg_quality_var.get()),
+			"resize_mode": self.resize_mode_var.get(),
+			"resize_value": int(self.resize_value_var.get()),
+			"position": self.position_var.get(),
+			"manual_x": int(self.manual_x_var.get()) if hasattr(self, "manual_x_var") else 0,
+			"manual_y": int(self.manual_y_var.get()) if hasattr(self, "manual_y_var") else 0,
+			"rotation": int(self.rotation_var.get()) if hasattr(self, "rotation_var") else 0,
+			"font_size": int(self.font_size_var.get()),
+			"color": self.color_var.get(),
+			"opacity": float(self.opacity_var.get()),
+			"font_path": self.font_path_var.get(),
+			"margin_x": int(self.margin_x_var.get()),
+			"margin_y": int(self.margin_y_var.get()),
+			"stroke_width": int(self.stroke_width_var.get()),
+			"stroke_color": self.stroke_color_var.get(),
+			"shadow_dx": int(self.shadow_dx_var.get()),
+			"shadow_dy": int(self.shadow_dy_var.get()),
+			"shadow_color": self.shadow_color_var.get(),
+			"shadow_opacity": float(self.shadow_opacity_var.get()),
+			"exif_only": bool(self.exif_only_var.get()),
+			"fallback_mtime": bool(self.fallback_mtime_var.get()),
+		}
+
+	def _apply_settings(self, cfg: dict):
+		mset = {
+			self.wm_type_var: cfg.get("wm_type", self.wm_type_var.get()),
+			self.custom_text_var: cfg.get("custom_text", self.custom_text_var.get()),
+			self.image_wm_path_var: cfg.get("image_wm_path", self.image_wm_path_var.get()),
+			self.output_dir_var: cfg.get("output_dir", self.output_dir_var.get()),
+			self.prefix_var: cfg.get("prefix", self.prefix_var.get()),
+			self.suffix_var: cfg.get("suffix", self.suffix_var.get()),
+			self.format_var: cfg.get("format", self.format_var.get()),
+			self.resize_mode_var: cfg.get("resize_mode", self.resize_mode_var.get()),
+			self.position_var: cfg.get("position", self.position_var.get()),
+			self.color_var: cfg.get("color", self.color_var.get()),
+			self.font_path_var: cfg.get("font_path", self.font_path_var.get()),
+			self.stroke_color_var: cfg.get("stroke_color", self.stroke_color_var.get()),
+			self.shadow_color_var: cfg.get("shadow_color", self.shadow_color_var.get()),
+		}
+		for var, val in mset.items():
+			try:
+				var.set(val)
+			except Exception:
+				pass
+		# numeric
+		for var, key in [
+			(self.image_wm_scale_var, "image_wm_scale"),
+			(self.jpeg_quality_var, "jpeg_quality"),
+			(self.resize_value_var, "resize_value"),
+			(self.manual_x_var, "manual_x"),
+			(self.manual_y_var, "manual_y"),
+			(self.rotation_var, "rotation"),
+			(self.font_size_var, "font_size"),
+			(self.opacity_var, "opacity"),
+			(self.margin_x_var, "margin_x"),
+			(self.margin_y_var, "margin_y"),
+			(self.stroke_width_var, "stroke_width"),
+			(self.shadow_dx_var, "shadow_dx"),
+			(self.shadow_dy_var, "shadow_dy"),
+			(self.shadow_opacity_var, "shadow_opacity"),
+		]:
+			try:
+				val = cfg.get(key)
+				if val is not None:
+					var.set(val)
+			except Exception:
+				pass
+		# bools
+		for var, key in [
+			(self.exif_only_var, "exif_only"),
+			(self.fallback_mtime_var, "fallback_mtime"),
+		]:
+			try:
+				val = cfg.get(key)
+				if val is not None:
+					var.set(bool(val))
+			except Exception:
+				pass
+		self.update_preview()
+
+	def save_template(self):
+		from tkinter import simpledialog
+		name = simpledialog.askstring("保存模板", "输入模板名称：", parent=self.root)
+		if not name:
+			return
+		cfg = self._collect_settings()
+		path = self._template_path(name)
+		try:
+			with open(path, "w", encoding="utf-8") as f:
+				json.dump(cfg, f, ensure_ascii=False, indent=2)
+			messagebox.showinfo("成功", f"已保存模板：{name}")
+		except Exception as e:
+			messagebox.showerror("错误", f"保存失败：{e}")
+
+	def load_template(self):
+		from tkinter import filedialog
+		path = filedialog.askopenfilename(title="选择模板", initialdir=self._config_dir(), filetypes=[("JSON","*.json")])
+		if not path:
+			return
+		try:
+			with open(path, "r", encoding="utf-8") as f:
+				cfg = json.load(f)
+			self._apply_settings(cfg)
+			messagebox.showinfo("成功", "模板已加载")
+		except Exception as e:
+			messagebox.showerror("错误", f"加载失败：{e}")
+
+	def delete_template(self):
+		from tkinter import filedialog
+		path = filedialog.askopenfilename(title="删除模板", initialdir=self._config_dir(), filetypes=[("JSON","*.json")])
+		if not path:
+			return
+		try:
+			os.remove(path)
+			messagebox.showinfo("成功", "模板已删除")
+		except Exception as e:
+			messagebox.showerror("错误", f"删除失败：{e}")
+
+	def _save_last_settings(self):
+		try:
+			cfg = self._collect_settings()
+			path = os.path.join(self._config_dir(), "last.json")
+			with open(path, "w", encoding="utf-8") as f:
+				json.dump(cfg, f, ensure_ascii=False, indent=2)
+		except Exception:
+			pass
+
+	def _load_last_settings(self):
+		path = os.path.join(self._config_dir(), "last.json")
+		if not os.path.isfile(path):
+			return
+		with open(path, "r", encoding="utf-8") as f:
+			cfg = json.load(f)
+		self._apply_settings(cfg)
+
+	def _on_close(self):
+		self._save_last_settings()
+		self.root.destroy()
+
+	# ---------- Templates & Config ----------
+	def _config_path(self) -> str:
+		base = os.path.join(os.path.expanduser("~"), ".photodate_wm")
+		os.makedirs(base, exist_ok=True)
+		return os.path.join(base, "templates.json")
+
+	def _load_config(self) -> dict:
+		path = self._config_path()
+		if not os.path.isfile(path):
+			return {"templates": {}, "last_settings": None}
+		with open(path, "r", encoding="utf-8") as f:
+			return json.load(f)
+
+	def _save_config(self, data: dict) -> None:
+		path = self._config_path()
+		with open(path, "w", encoding="utf-8") as f:
+			json.dump(data, f, ensure_ascii=False, indent=2)
+
+	def _serialize_settings(self) -> dict:
+		return {
+			"wm_type": self.wm_type_var.get(),
+			"custom_text": self.custom_text_var.get(),
+			"image_wm_path": self.image_wm_path_var.get(),
+			"image_wm_scale": int(self.image_wm_scale_var.get()),
+			"position": self.position_var.get(),
+			"manual_x": int(self.manual_x_var.get()) if hasattr(self, "manual_x_var") else 0,
+			"manual_y": int(self.manual_y_var.get()) if hasattr(self, "manual_y_var") else 0,
+			"rotation": int(self.rotation_var.get()) if hasattr(self, "rotation_var") else 0,
+			"font_size": int(self.font_size_var.get()),
+			"color": self.color_var.get(),
+			"opacity": float(self.opacity_var.get()),
+			"stroke_width": int(self.stroke_width_var.get()),
+			"stroke_color": self.stroke_color_var.get(),
+			"shadow_dx": int(self.shadow_dx_var.get()),
+			"shadow_dy": int(self.shadow_dy_var.get()),
+			"shadow_color": self.shadow_color_var.get(),
+			"shadow_opacity": float(self.shadow_opacity_var.get()),
+			"font_path": self.font_path_var.get(),
+			"margin_x": int(self.margin_x_var.get()),
+			"margin_y": int(self.margin_y_var.get()),
+			"exif_only": bool(self.exif_only_var.get()),
+			"fallback_mtime": bool(self.fallback_mtime_var.get()),
+			"output_dir": self.output_dir_var.get(),
+			"prefix": self.prefix_var.get(),
+			"suffix": self.suffix_var.get(),
+			"format": self.format_var.get(),
+			"jpeg_quality": int(self.jpeg_quality_var.get()),
+			"resize_mode": self.resize_mode_var.get(),
+			"resize_value": int(self.resize_value_var.get()),
+		}
+
+	def _apply_settings(self, s: dict) -> None:
+		self.wm_type_var.set(s.get("wm_type", self.wm_type_var.get()))
+		self.custom_text_var.set(s.get("custom_text", self.custom_text_var.get()))
+		self.image_wm_path_var.set(s.get("image_wm_path", self.image_wm_path_var.get()))
+		self.image_wm_scale_var.set(s.get("image_wm_scale", self.image_wm_scale_var.get()))
+		self.position_var.set(s.get("position", self.position_var.get()))
+		if hasattr(self, "manual_x_var"): self.manual_x_var.set(s.get("manual_x", self.manual_x_var.get()))
+		if hasattr(self, "manual_y_var"): self.manual_y_var.set(s.get("manual_y", self.manual_y_var.get()))
+		if hasattr(self, "rotation_var"): self.rotation_var.set(s.get("rotation", self.rotation_var.get()))
+		self.font_size_var.set(s.get("font_size", self.font_size_var.get()))
+		self.color_var.set(s.get("color", self.color_var.get()))
+		self.opacity_var.set(s.get("opacity", self.opacity_var.get()))
+		self.stroke_width_var.set(s.get("stroke_width", self.stroke_width_var.get()))
+		self.stroke_color_var.set(s.get("stroke_color", self.stroke_color_var.get()))
+		self.shadow_dx_var.set(s.get("shadow_dx", self.shadow_dx_var.get()))
+		self.shadow_dy_var.set(s.get("shadow_dy", self.shadow_dy_var.get()))
+		self.shadow_color_var.set(s.get("shadow_color", self.shadow_color_var.get()))
+		self.shadow_opacity_var.set(s.get("shadow_opacity", self.shadow_opacity_var.get()))
+		self.font_path_var.set(s.get("font_path", self.font_path_var.get()))
+		self.margin_x_var.set(s.get("margin_x", self.margin_x_var.get()))
+		self.margin_y_var.set(s.get("margin_y", self.margin_y_var.get()))
+		self.exif_only_var.set(s.get("exif_only", self.exif_only_var.get()))
+		self.fallback_mtime_var.set(s.get("fallback_mtime", self.fallback_mtime_var.get()))
+		self.output_dir_var.set(s.get("output_dir", self.output_dir_var.get()))
+		self.prefix_var.set(s.get("prefix", self.prefix_var.get()))
+		self.suffix_var.set(s.get("suffix", self.suffix_var.get()))
+		self.format_var.set(s.get("format", self.format_var.get()))
+		self.jpeg_quality_var.set(s.get("jpeg_quality", self.jpeg_quality_var.get()))
+		self.resize_mode_var.set(s.get("resize_mode", self.resize_mode_var.get()))
+		self.resize_value_var.set(s.get("resize_value", self.resize_value_var.get()))
+		self.update_preview()
+
+	def save_template(self):
+		name = simpledialog.askstring("保存模板", "输入模板名称：", parent=self.root)
+		if not name:
+			return
+		cfg = self._load_config()
+		cfg.setdefault("templates", {})[name] = self._serialize_settings()
+		cfg["last_settings"] = cfg["templates"][name]
+		self._save_config(cfg)
+		messagebox.showinfo("提示", f"已保存模板：{name}")
+
+	def load_template(self):
+		cfg = self._load_config()
+		names = sorted(cfg.get("templates", {}).keys())
+		if not names:
+			messagebox.showinfo("提示", "暂无模板可加载")
+			return
+		choice = simpledialog.askstring("加载模板", f"可用模板：\n{', '.join(names)}\n\n输入要加载的模板名称：", parent=self.root)
+		if not choice or choice not in cfg["templates"]:
+			return
+		self._apply_settings(cfg["templates"][choice])
+		cfg["last_settings"] = cfg["templates"][choice]
+		self._save_config(cfg)
+
+	def manage_templates(self):
+		cfg = self._load_config()
+		names = sorted(cfg.get("templates", {}).keys())
+		if not names:
+			messagebox.showinfo("提示", "暂无模板")
+			return
+		name = simpledialog.askstring("删除模板", f"现有模板：\n{', '.join(names)}\n\n输入要删除的模板名称：", parent=self.root)
+		if not name or name not in cfg["templates"]:
+			return
+		del cfg["templates"][name]
+		self._save_config(cfg)
+		messagebox.showinfo("提示", f"已删除模板：{name}")
+
+	def _on_close(self):
+		try:
+			cfg = self._load_config()
+			cfg["last_settings"] = self._serialize_settings()
+			self._save_config(cfg)
+		except Exception:
+			pass
+		self.root.destroy()
 
 	def _resize_image(self, im: Image.Image) -> Image.Image:
 		mode = self.resize_mode_var.get()
