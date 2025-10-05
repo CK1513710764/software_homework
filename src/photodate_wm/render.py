@@ -76,3 +76,4 @@ def draw_text_watermark(image: Image.Image, text: str, font_size: int = 32, colo
 	return composited.convert("RGB")
 
 
+

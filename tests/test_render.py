@@ -12,3 +12,4 @@ def test_draw_text_positions(tmp_path):
 		assert out.mode in ("RGB", "RGBA")
 
 
+

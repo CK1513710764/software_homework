@@ -11,6 +11,7 @@ SUPPORTED_EXTENSIONS: Set[str] = {
 	".jpg",
 	".jpeg",
 	".png",
+	".bmp",
 	".tif",
 	".tiff",
 	".heic",

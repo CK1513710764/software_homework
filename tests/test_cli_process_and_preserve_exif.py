@@ -52,3 +52,4 @@ def test_cli_writes_output_and_preserves_exif(tmp_path):
 		assert val.decode("utf-8").startswith("2021:")
 
 
+

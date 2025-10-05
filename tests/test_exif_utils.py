@@ -38,3 +38,4 @@ def test_returns_none_when_exif_only_and_no_exif(tmp_path):
 	assert extract_photo_date_string(str(file_path), fallback_mtime=True, exif_only=True) is None
 
 
+
