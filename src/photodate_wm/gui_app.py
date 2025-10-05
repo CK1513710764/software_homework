@@ -90,9 +90,20 @@ class App:
 		btn_add_dir.pack(side=tk.LEFT, padx=4, pady=4)
 		btn_choose_out.pack(side=tk.LEFT, padx=4, pady=4)
 
+		# Preview canvas
+		preview_frame = ttk.LabelFrame(frm, text="预览")
+		preview_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+		self.preview_canvas = tk.Canvas(preview_frame, bg="#333333", height=320)
+		self.preview_canvas.pack(fill=tk.BOTH, expand=True)
+		self.preview_img_tk = None
+		self.preview_origin = (0, 0)
+		self._dragging = False
+		self._drag_offset = (0, 0)
+
 		# List area
 		self.listbox = tk.Listbox(frm, height=10)
 		self.listbox.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+		self.listbox.bind("<<ListboxSelect>>", self.on_select_item)
 
 		# Options (scrollable)
 		opts_container = ttk.LabelFrame(frm, text="参数")
@@ -186,6 +197,22 @@ class App:
 		pos_cb.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
 		row += 1
 
+		# manual position & rotation for advanced control
+		ttk.Label(opts, text="手动X,Y").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		self.manual_x_var = tk.IntVar(value=0)
+		self.manual_y_var = tk.IntVar(value=0)
+		entry_mx = ttk.Entry(opts, textvariable=self.manual_x_var, width=8)
+		entry_my = ttk.Entry(opts, textvariable=self.manual_y_var, width=8)
+		entry_mx.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		entry_my.grid(row=row, column=2, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		ttk.Label(opts, text="旋转角度").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		self.rotation_var = tk.IntVar(value=0)
+		rot_scale = ttk.Scale(opts, from_=0, to=359, orient=tk.HORIZONTAL, variable=self.rotation_var)
+		rot_scale.grid(row=row, column=1, sticky=tk.W+tk.E, padx=4, pady=4)
+		row += 1
+
 		for label, var in [("字号", self.font_size_var),("边距X", self.margin_x_var),("边距Y", self.margin_y_var)]:
 			ttk.Label(opts, text=label).grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
 			entry = ttk.Entry(opts, textvariable=var, width=10)
@@ -247,6 +274,18 @@ class App:
 		self.btn_cancel.pack(side=tk.LEFT, padx=8)
 		self.progress = ttk.Progressbar(controls, mode="determinate")
 		self.progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+		# Preview interactions
+		self.preview_canvas.bind("<ButtonPress-1>", self._start_drag)
+		self.preview_canvas.bind("<B1-Motion>", self._on_drag)
+		self.preview_canvas.bind("<ButtonRelease-1>", self._end_drag)
+
+		# realtime preview traces
+		for v in [self.wm_type_var, self.custom_text_var, self.image_wm_path_var,
+				self.image_wm_scale_var, self.position_var, self.font_size_var, self.color_var,
+				self.opacity_var, self.margin_x_var, self.margin_y_var, self.rotation_var,
+				self.stroke_width_var, self.stroke_color_var, self.shadow_dx_var, self.shadow_dy_var,
+				self.shadow_color_var, self.shadow_opacity_var, self.manual_x_var, self.manual_y_var]:
+			v.trace_add("write", lambda *_: self.update_preview())
 
 	def _setup_dnd(self):
 		# optional drag & drop listbox
@@ -306,6 +345,126 @@ class App:
 		with Image.open(path) as im:
 			im.thumbnail((160, 160))
 			return ImageTk.PhotoImage(im.copy())
+
+	def _load_preview_image(self) -> Optional[Image.Image]:
+		# Load the currently selected image or first item
+		if not self.items:
+			return None
+		idxs = self.listbox.curselection()
+		path = self.items[idxs[0]].path if idxs else self.items[0].path
+		try:
+			im = Image.open(path)
+			return im
+		except Exception:
+			return None
+
+	def on_select_item(self, _evt=None):
+		self.update_preview()
+
+	def update_preview(self):
+		im = self._load_preview_image()
+		if im is None:
+			self.preview_canvas.delete("all")
+			return
+		# Fit preview to canvas width while keeping aspect ratio
+		cw = max(1, self.preview_canvas.winfo_width())
+		ch = max(1, self.preview_canvas.winfo_height())
+		w, h = im.size
+		scale = min(cw / w, ch / h)
+		pw, ph = max(1, int(w * scale)), max(1, int(h * scale))
+		im_preview = im.resize((pw, ph), Image.LANCZOS)
+		self.preview_img_tk = ImageTk.PhotoImage(im_preview)
+		self.preview_canvas.delete("all")
+		xo = (cw - pw) // 2
+		yo = (ch - ph) // 2
+		self.preview_origin = (xo, yo)
+		self.preview_canvas.create_image(xo, yo, anchor="nw", image=self.preview_img_tk)
+
+		# draw watermark preview
+		wm_type = self.wm_type_var.get()
+		rotation = int(self.rotation_var.get())
+		manual_xy = (int(self.manual_x_var.get()), int(self.manual_y_var.get()))
+		margin_x = int(self.margin_x_var.get())
+		margin_y = int(self.margin_y_var.get())
+		position = self.position_var.get()
+
+		if wm_type in ("date","text"):
+			text_to_draw = ""
+			if wm_type == "date":
+				text_to_draw = "YYYY-MM-DD"
+			else:
+				text_to_draw = (self.custom_text_var.get() or "").strip() or "示例"
+			font_size = int(self.font_size_var.get())
+			color = self.color_var.get()
+			opacity = float(self.opacity_var.get())
+			sw = int(self.stroke_width_var.get())
+			sc = self.stroke_color_var.get()
+			sdx = int(self.shadow_dx_var.get())
+			sdy = int(self.shadow_dy_var.get())
+			sc2 = self.shadow_color_var.get()
+			so = float(self.shadow_opacity_var.get())
+
+			# Render watermark onto the preview image itself then display
+			im_marked = draw_text_watermark(
+				im_preview,
+				text_to_draw,
+				font_size=font_size,
+				color=color,
+				opacity=opacity,
+				position=position,
+				margin_x=margin_x,
+				margin_y=margin_y,
+				font_path=(self.font_path_var.get().strip() or None),
+				stroke_width=sw,
+				stroke_color=sc,
+				shadow_offset=(sdx, sdy),
+				shadow_color=sc2,
+				shadow_opacity=so,
+				rotation_deg=rotation,
+				override_xy=manual_xy if position == "manual" else None,
+			)
+			self.preview_img_tk = ImageTk.PhotoImage(im_marked)
+			self.preview_canvas.create_image(xo, yo, anchor="nw", image=self.preview_img_tk)
+		else:
+			img_path = (self.image_wm_path_var.get() or "").strip()
+			if os.path.isfile(img_path):
+				try:
+					with Image.open(img_path) as wm:
+						im_marked = draw_image_watermark(
+							im_preview,
+							wm,
+							scale_percent=int(self.image_wm_scale_var.get()),
+							opacity=float(self.opacity_var.get()),
+							position=position,
+							margin_x=margin_x,
+							margin_y=margin_y,
+							rotation_deg=rotation,
+							override_xy=manual_xy if position == "manual" else None,
+						)
+						self.preview_img_tk = ImageTk.PhotoImage(im_marked)
+						self.preview_canvas.create_image(xo, yo, anchor="nw", image=self.preview_img_tk)
+				except Exception:
+					pass
+
+	def _canvas_to_image_coords(self, x: int, y: int) -> tuple[int, int]:
+		xo, yo = self.preview_origin
+		return max(0, x - xo), max(0, y - yo)
+
+	def _start_drag(self, event):
+		self._dragging = True
+		x, y = self._canvas_to_image_coords(event.x, event.y)
+		self.manual_x_var.set(x)
+		self.manual_y_var.set(y)
+
+	def _on_drag(self, event):
+		if not self._dragging:
+			return
+		x, y = self._canvas_to_image_coords(event.x, event.y)
+		self.manual_x_var.set(x)
+		self.manual_y_var.set(y)
+
+	def _end_drag(self, _event):
+		self._dragging = False
 
 	def _resize_image(self, im: Image.Image) -> Image.Image:
 		mode = self.resize_mode_var.get()

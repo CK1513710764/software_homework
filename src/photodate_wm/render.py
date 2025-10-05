@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Tuple
+from typing import Tuple, Optional
 
 from PIL import Image, ImageColor, ImageDraw, ImageFont
 
@@ -69,29 +69,43 @@ def draw_text_watermark(
 	shadow_offset: Tuple[int, int] = (0, 0),
 	shadow_color: str = "#000000",
 	shadow_opacity: float = 0.5,
+	rotation_deg: int = 0,
+	override_xy: Optional[Tuple[int, int]] = None,
 ) -> Image.Image:
 	base_mode = image.mode
 	img_rgba = image.convert("RGBA")
 	overlay = Image.new("RGBA", img_rgba.size, (0, 0, 0, 0))
-	draw = ImageDraw.Draw(overlay)
 	font = _load_font(font_path, font_size)
 
-	# Measure text
-	bbox = draw.textbbox((0, 0), text, font=font, stroke_width=stroke_width)
+	# Render text to its own layer so rotation is applied cleanly
+	measure_img = Image.new("RGBA", (1, 1))
+	measure_draw = ImageDraw.Draw(measure_img)
+	bbox = measure_draw.textbbox((0, 0), text, font=font, stroke_width=stroke_width)
 	text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-	x, y = _compute_anchor_xy(img_rgba.width, img_rgba.height, text_w, text_h, position, margin_x, margin_y)
-
+	text_layer = Image.new("RGBA", (max(1, text_w + abs(shadow_offset[0]) + stroke_width * 2), max(1, text_h + abs(shadow_offset[1]) + stroke_width * 2)), (0, 0, 0, 0))
+	txt_draw = ImageDraw.Draw(text_layer)
 	r, g, b, a = _parse_rgba(color, opacity)
-	# optional shadow
+	# optional shadow on its own offset
 	if shadow_offset != (0, 0):
 		sr, sg, sb, sa = _parse_rgba(shadow_color, shadow_opacity)
-		draw.text((x + shadow_offset[0], y + shadow_offset[1]), text, font=font, fill=(sr, sg, sb, sa), stroke_width=stroke_width, stroke_fill=(sr, sg, sb, sa))
+		txt_draw.text((max(0, shadow_offset[0]), max(0, shadow_offset[1])), text, font=font, fill=(sr, sg, sb, sa), stroke_width=stroke_width, stroke_fill=(sr, sg, sb, sa))
 	# main text with optional stroke
 	if stroke_width > 0:
 		sr, sg, sb, sa2 = _parse_rgba(stroke_color, 1.0)
-		draw.text((x, y), text, font=font, fill=(r, g, b, a), stroke_width=stroke_width, stroke_fill=(sr, sg, sb, sa2))
+		txt_draw.text((0, 0), text, font=font, fill=(r, g, b, a), stroke_width=stroke_width, stroke_fill=(sr, sg, sb, sa2))
 	else:
-		draw.text((x, y), text, font=font, fill=(r, g, b, a))
+		txt_draw.text((0, 0), text, font=font, fill=(r, g, b, a))
+
+	if rotation_deg % 360 != 0:
+		text_layer = text_layer.rotate(rotation_deg, expand=True, resample=Image.BICUBIC)
+
+	Lw, Lh = text_layer.width, text_layer.height
+	if override_xy is not None:
+		x, y = override_xy
+	else:
+		x, y = _compute_anchor_xy(img_rgba.width, img_rgba.height, Lw, Lh, position, margin_x, margin_y)
+
+	overlay.paste(text_layer, (x, y), text_layer)
 
 	composited = Image.alpha_composite(img_rgba, overlay)
 	if base_mode == "RGBA":
@@ -108,6 +122,8 @@ def draw_image_watermark(
 	position: str = "br",
 	margin_x: int = 24,
 	margin_y: int = 24,
+	rotation_deg: int = 0,
+	override_xy: Optional[Tuple[int, int]] = None,
 ) -> Image.Image:
 	base_mode = image.mode
 	img_rgba = image.convert("RGBA")
@@ -128,7 +144,13 @@ def draw_image_watermark(
 		alpha = alpha.point(lambda p: int(p * max(0.0, min(1.0, opacity))))
 		wm.putalpha(alpha)
 
-	x, y = _compute_anchor_xy(img_rgba.width, img_rgba.height, wm.width, wm.height, position, margin_x, margin_y)
+	if rotation_deg % 360 != 0:
+		wm = wm.rotate(rotation_deg, expand=True, resample=Image.BICUBIC)
+
+	if override_xy is not None:
+		x, y = override_xy
+	else:
+		x, y = _compute_anchor_xy(img_rgba.width, img_rgba.height, wm.width, wm.height, position, margin_x, margin_y)
 	overlay.paste(wm, (x, y), wm)
 
 	composited = Image.alpha_composite(img_rgba, overlay)
