@@ -20,7 +20,7 @@ except Exception as e:
 
 from .cli import SUPPORTED_EXTENSIONS
 from .exif_utils import extract_photo_date_string
-from .render import draw_text_watermark
+from .render import draw_text_watermark, draw_image_watermark
 
 
 SUPPORTED_INPUT_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
@@ -55,6 +55,19 @@ class App:
 		self.font_path_var = tk.StringVar(value="")
 		self.margin_x_var = tk.IntVar(value=24)
 		self.margin_y_var = tk.IntVar(value=24)
+		# text advanced
+		self.stroke_width_var = tk.IntVar(value=0)
+		self.stroke_color_var = tk.StringVar(value="#000000")
+		self.shadow_dx_var = tk.IntVar(value=0)
+		self.shadow_dy_var = tk.IntVar(value=0)
+		self.shadow_color_var = tk.StringVar(value="#000000")
+		self.shadow_opacity_var = tk.DoubleVar(value=0.5)
+
+		# watermark type
+		self.wm_type_var = tk.StringVar(value="date")  # date|text|image
+		self.custom_text_var = tk.StringVar(value="")
+		self.image_wm_path_var = tk.StringVar(value="")
+		self.image_wm_scale_var = tk.IntVar(value=20)
 		self.exif_only_var = tk.BooleanVar(value=False)
 		self.fallback_mtime_var = tk.BooleanVar(value=True)
 
@@ -82,6 +95,29 @@ class App:
 		# Options
 		opts = ttk.LabelFrame(frm, text="参数")
 		opts.pack(fill=tk.X, padx=6, pady=6)
+		# watermark type selection
+		ttk.Label(opts, text="水印类型").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		wm_cb = ttk.Combobox(opts, textvariable=self.wm_type_var, values=["date","text","image"], width=10, state="readonly")
+		wm_cb.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		# custom text & image watermark selectors
+		ttk.Label(opts, text="自定义文本").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		entry_text = ttk.Entry(opts, textvariable=self.custom_text_var, width=30)
+		entry_text.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		ttk.Label(opts, text="图片水印路径").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		entry_img = ttk.Entry(opts, textvariable=self.image_wm_path_var, width=40)
+		entry_img.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		btn_img = ttk.Button(opts, text="选择图片", command=self.choose_image_watermark)
+		btn_img.grid(row=row, column=2, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		ttk.Label(opts, text="图片水印比例(%)").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		img_scale = ttk.Scale(opts, from_=1, to=100, orient=tk.HORIZONTAL, variable=self.image_wm_scale_var)
+		img_scale.grid(row=row, column=1, sticky=tk.W+tk.E, padx=4, pady=4)
+		row += 1
 
 		row = 0
 		for label, var, width in [
@@ -142,6 +178,34 @@ class App:
 			entry.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
 			row += 1
 
+		# text advanced styles
+		ttk.Label(opts, text="描边宽度").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		stroke_entry = ttk.Entry(opts, textvariable=self.stroke_width_var, width=10)
+		stroke_entry.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		ttk.Label(opts, text="描边颜色").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		stroke_color_entry = ttk.Entry(opts, textvariable=self.stroke_color_var, width=12)
+		stroke_color_entry.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		ttk.Label(opts, text="阴影偏移dx,dy").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		shadow_dx_entry = ttk.Entry(opts, textvariable=self.shadow_dx_var, width=6)
+		shadow_dx_entry.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		shadow_dy_entry = ttk.Entry(opts, textvariable=self.shadow_dy_var, width=6)
+		shadow_dy_entry.grid(row=row, column=2, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		ttk.Label(opts, text="阴影颜色").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		shadow_color_entry = ttk.Entry(opts, textvariable=self.shadow_color_var, width=12)
+		shadow_color_entry.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
+		ttk.Label(opts, text="阴影透明度(0-1)").grid(row=row, column=0, sticky=tk.W, padx=4, pady=4)
+		shadow_opacity_entry = ttk.Entry(opts, textvariable=self.shadow_opacity_var, width=10)
+		shadow_opacity_entry.grid(row=row, column=1, sticky=tk.W, padx=4, pady=4)
+		row += 1
+
 		# exif-only & fallback
 		chk1 = ttk.Checkbutton(opts, text="仅含EXIF日期", variable=self.exif_only_var)
 		chk2 = ttk.Checkbutton(opts, text="无EXIF回退到修改时间", variable=self.fallback_mtime_var)
@@ -182,6 +246,11 @@ class App:
 		path = filedialog.askdirectory(title="选择输出文件夹")
 		if path:
 			self.output_dir_var.set(path)
+
+	def choose_image_watermark(self):
+		path = filedialog.askopenfilename(title="选择图片水印", filetypes=[("PNG","*.png"),("Images","*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff")])
+		if path:
+			self.image_wm_path_var.set(path)
 
 	def _add_paths(self, paths):
 		added = 0
@@ -247,23 +316,53 @@ class App:
 		for it in self.items:
 			try:
 				with Image.open(it.path) as im:
-					# 读取日期文本
-					date_str = extract_photo_date_string(it.path, fallback_mtime=self.fallback_mtime_var.get(), exif_only=self.exif_only_var.get())
-					if not date_str:
-						skipped += 1
-						continue
 					im2 = self._resize_image(im)
-					out_im = draw_text_watermark(
-						im2,
-						date_str,
-						font_size=int(self.font_size_var.get()),
-						color=self.color_var.get(),
-						opacity=float(self.opacity_var.get()),
-						position=self.position_var.get(),
-						margin_x=int(self.margin_x_var.get()),
-						margin_y=int(self.margin_y_var.get()),
-						font_path=(self.font_path_var.get().strip() or None),
-					)
+					wm_type = self.wm_type_var.get()
+					if wm_type == "date":
+						date_str = extract_photo_date_string(it.path, fallback_mtime=self.fallback_mtime_var.get(), exif_only=self.exif_only_var.get())
+						if not date_str:
+							skipped += 1
+							continue
+						text_to_draw = date_str
+					elif wm_type == "text":
+						text_to_draw = (self.custom_text_var.get() or "").strip()
+						if not text_to_draw:
+							skipped += 1
+							continue
+					else:  # image watermark
+						img_path = (self.image_wm_path_var.get() or "").strip()
+						if not img_path or not os.path.isfile(img_path):
+							skipped += 1
+							continue
+
+					if wm_type in ("date","text"):
+						out_im = draw_text_watermark(
+							im2,
+							text_to_draw,
+							font_size=int(self.font_size_var.get()),
+							color=self.color_var.get(),
+							opacity=float(self.opacity_var.get()),
+							position=self.position_var.get(),
+							margin_x=int(self.margin_x_var.get()),
+							margin_y=int(self.margin_y_var.get()),
+							font_path=(self.font_path_var.get().strip() or None),
+							stroke_width=int(self.stroke_width_var.get()),
+							stroke_color=self.stroke_color_var.get(),
+							shadow_offset=(int(self.shadow_dx_var.get()), int(self.shadow_dy_var.get())),
+							shadow_color=self.shadow_color_var.get(),
+							shadow_opacity=float(self.shadow_opacity_var.get()),
+						)
+					else:
+						with Image.open(img_path) as wm:
+							out_im = draw_image_watermark(
+								im2,
+								wm,
+								scale_percent=int(self.image_wm_scale_var.get()),
+								opacity=float(self.opacity_var.get()),
+								position=self.position_var.get(),
+								margin_x=int(self.margin_x_var.get()),
+								margin_y=int(self.margin_y_var.get()),
+							)
 					stem = os.path.splitext(os.path.basename(it.path))[0]
 					out_name = f"{prefix}{stem}{suffix}"
 					ext = ".jpg" if fmt == "JPEG" else ".png"
