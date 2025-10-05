@@ -14,12 +14,12 @@ try:
 	# optional drag & drop support
 	from tkinterdnd2 import DND_FILES, TkinterDnD
 	import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
+	from tkinter import ttk, filedialog, messagebox, simpledialog
 	except_import = None
 except Exception as e:
 	except_import = e
 	import tkinter as tk
-	from tkinter import ttk, filedialog, messagebox
+	from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from .cli import SUPPORTED_EXTENSIONS
 from .exif_utils import extract_photo_date_string
